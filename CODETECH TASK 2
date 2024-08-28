@@ -1,0 +1,379 @@
+
+#include "ThingSpeak.h"
+#include <WiFi.h>
+
+const char* WIFI_NAME = "Wokwi-GUEST";
+const char* WIFI_PASSWORD = "";
+const char* myApiKey = "ZRADU9LWIF74EU9M";
+
+const int myChannelNumber = 2433105;
+const char* server = "api.thingspeak.com";
+
+WiFiClient client;
+
+unsigned long lastSendTime = 0;
+const unsigned long sendInterval = 20000;  // Send data every 20 seconds
+
+// Define RGB LED pins(North)
+int redPin_N = 33 ;
+int greenPin_N = 26;
+int yellowPin_N = 25 ;
+
+// Define RGB LED pins(South)
+int redPin_S = 32;
+int greenPin_S = 13;
+int yellowPin_S = 22 ;
+
+// Define RGB LED pins(East)
+int redPin_E = 16 ;
+int greenPin_E = 0;
+int yellowPin_E = 4;
+
+// Define RGB LED pins(West)
+int redPin_W = 27;
+int greenPin_W = 12;
+int yellowPin_W = 14;
+
+// Define ultrasonic sensor pins(North)
+int trigPin_N = 17;
+int echoPin_N = 5 ;
+
+// Define ultrasonic sensor pins(South)
+int trigPin_S = 23 ;
+int echoPin_S = 35;
+
+// Define ultrasonic sensor pins(East)
+int trigPin_E = 19;
+int echoPin_E = 18;
+
+// Define ultrasonic sensor pins(West)
+int trigPin_W = 2;
+int echoPin_W = 15;
+
+#include <DHTesp.h>
+
+#define DHT_PIN 21
+DHTesp dht;
+
+
+
+void setup() {
+  WiFi.begin(WIFI_NAME, WIFI_PASSWORD);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(1000);
+    Serial.println("Wifi not connected");
+  }
+  Serial.println("Wifi connected !");
+  Serial.println("Local IP: " + String(WiFi.localIP()));
+  WiFi.mode(WIFI_STA);
+  ThingSpeak.begin(client);
+
+  //North
+  // Set RGB LED pins as OUTPUT
+  pinMode(redPin_N, OUTPUT);
+  pinMode(greenPin_N, OUTPUT);
+  pinMode(yellowPin_N, OUTPUT);
+  // Set ultrasonic sensor pins
+  pinMode(trigPin_N, OUTPUT);
+  pinMode(echoPin_N, INPUT);
+
+  //South
+  // Set RGB LED pins as OUTPUT
+  pinMode(redPin_S, OUTPUT);
+  pinMode(greenPin_S, OUTPUT);
+  pinMode(yellowPin_S, OUTPUT);
+  // Set ultrasonic sensor pins
+  pinMode(trigPin_S, OUTPUT);
+  pinMode(echoPin_S, INPUT);
+
+  //East
+  // Set RGB LED pins as OUTPUT
+  pinMode(redPin_E, OUTPUT);
+  pinMode(greenPin_E, OUTPUT);
+  pinMode(yellowPin_E, OUTPUT);
+  // Set ultrasonic sensor pins
+  pinMode(trigPin_E, OUTPUT);
+  pinMode(echoPin_E, INPUT);
+
+  //West
+  // Set RGB LED pins as OUTPUT
+  pinMode(redPin_W, OUTPUT);
+  pinMode(greenPin_W, OUTPUT);
+  pinMode(yellowPin_W, OUTPUT);
+  // Set ultrasonic sensor pins
+  pinMode(trigPin_W, OUTPUT);
+  pinMode(echoPin_W, INPUT);
+
+  dht.setup(DHT_PIN, DHTesp::DHT22);
+
+  Serial.begin(115200);
+
+}
+
+void loop() {
+
+  // Measure distance using ultrasonic sensor(North)
+  int distance_N = measureDistance(0);
+  // Measure distance using ultrasonic sensor(South)
+  int distance_S = measureDistance(1);
+  // Measure distance using ultrasonic sensor(East)
+  int distance_E = measureDistance(2);
+  // Measure distance using ultrasonic sensor(West)
+  int distance_W = measureDistance(3);
+
+  // Print distance
+  Serial.print("Traffic Distance South: ");
+  Serial.print(distance_N);
+  Serial.println(" cm");
+  Serial.print("Traffic Distance North: ");
+  Serial.print(distance_S);
+  Serial.println(" cm");
+  Serial.print("Traffic Distance West: ");
+  Serial.print(distance_E);
+  Serial.println(" cm");
+  Serial.print("Traffic Distance East: ");
+  Serial.print(distance_W);
+  Serial.println(" cm");
+
+
+  // Read DHT sensor data
+  float humidity = dht.getHumidity();
+  float temperature = dht.getTemperature();
+  //print data
+  Serial.print(humidity);
+  Serial.println(":Humidity");
+  Serial.print(temperature);
+  Serial.println(":Temperature");
+
+  Serial.println("---");
+  boolean cold = false;
+  //check of fogging
+  if (temperature < 20 && humidity > 90) {
+    Serial.println("COLD");
+    //turn on all yellow LED when fogging
+    digitalWrite(yellowPin_N, HIGH);
+    digitalWrite(yellowPin_S, HIGH);
+    digitalWrite(yellowPin_E, HIGH);
+    digitalWrite(yellowPin_W, HIGH);
+    cold = true;
+  } else {
+    //turn off all yellow when not fogging
+    digitalWrite(yellowPin_N, LOW);
+    digitalWrite(yellowPin_S, LOW);
+    digitalWrite(yellowPin_E, LOW);
+    digitalWrite(yellowPin_W, LOW);
+    cold = false;
+  }
+
+
+
+  // Adjust traffic light based on traffic density
+  if (distance_N > 300 && distance_S > 300 && distance_E > 300 && distance_W > 300) {
+    //traffic is very far/less
+    //show all green
+    digitalWrite(greenPin_N, HIGH);
+    digitalWrite(greenPin_S, HIGH);
+    digitalWrite(greenPin_E, HIGH);
+    digitalWrite(greenPin_W, HIGH);
+    digitalWrite(redPin_N, LOW);
+    digitalWrite(redPin_S, LOW);
+    digitalWrite(redPin_E, LOW);
+    digitalWrite(redPin_W, LOW);
+    //adding delay to avoid tracking single/low density traffic
+    delay(5000);
+
+  }  else  {
+    //when their is traffic
+
+    //initially only all red LEDs are ON
+    digitalWrite(greenPin_N, LOW);
+    digitalWrite(greenPin_S, LOW);
+    digitalWrite(greenPin_E, LOW);
+    digitalWrite(greenPin_W, LOW);
+    digitalWrite(redPin_N, HIGH);
+    digitalWrite(redPin_S, HIGH);
+    digitalWrite(redPin_E, HIGH);
+    digitalWrite(redPin_W, HIGH);
+
+
+    //Findind the direction with highest traffic(traffic at minimum distance)
+    int mini = 1000 ;
+    mini = min(distance_N, min(distance_S, min(distance_E, min(distance_W, mini))));
+
+
+    if (distance_N == distance_S && distance_S == distance_E && distance_E == distance_W) {
+      //All directions have equal traffic
+      //Doing a circle of green
+
+      //turning north green
+      digitalWrite(greenPin_N, HIGH);
+      digitalWrite(redPin_N, LOW);
+      delay(2000);
+      digitalWrite(greenPin_N, LOW);
+      digitalWrite(yellowPin_N, HIGH);
+      delay(1000);
+      if (!cold) {
+        digitalWrite(yellowPin_N, LOW);
+      }
+      digitalWrite(redPin_N, HIGH);
+
+      //turning east green
+      digitalWrite(greenPin_E, HIGH);
+      digitalWrite(redPin_E, LOW);
+      delay(2000);
+      digitalWrite(greenPin_E, LOW);
+      digitalWrite(yellowPin_E, HIGH);
+      delay(1000);
+      if (!cold) {
+        digitalWrite(yellowPin_E, LOW);
+      }
+      digitalWrite(redPin_E, HIGH);
+
+      //turning south green
+      digitalWrite(greenPin_S, HIGH);
+      digitalWrite(redPin_S, LOW);
+      delay(2000);
+      digitalWrite(greenPin_S, LOW);
+      digitalWrite(yellowPin_S, HIGH);
+      delay(1000);
+      if (!cold) {
+        digitalWrite(yellowPin_S, LOW);
+      }
+      digitalWrite(redPin_S, HIGH);
+
+      //turning west green
+      digitalWrite(greenPin_W, HIGH);
+      digitalWrite(redPin_W, LOW);
+      delay(2000);
+      digitalWrite(greenPin_W, LOW);
+      digitalWrite(yellowPin_W, HIGH);
+      delay(1000);
+      if (!cold) {
+        digitalWrite(yellowPin_W, LOW);
+      }
+      digitalWrite(redPin_W, HIGH); //initial (all red)
+
+    }
+    //assuming traffic dansity is continously changing
+    else if (distance_N == mini) {
+      //if south road has most traffic(detected by sensor in north)
+      Serial.println("North Green");
+      digitalWrite(redPin_N, LOW);
+      digitalWrite(greenPin_N, HIGH);
+      delay(5000);
+      digitalWrite(greenPin_N, LOW);
+      digitalWrite(yellowPin_N, HIGH);
+      delay(1000);
+      if (!cold) {
+        digitalWrite(yellowPin_N, LOW);
+      }
+      digitalWrite(redPin_N, HIGH);
+      delay(1000);
+    } else if (distance_S == mini) {
+      //if north road has most traffic(detected by sensor in south)
+      Serial.println("South Green");
+      digitalWrite(redPin_S, LOW);
+      digitalWrite(greenPin_S, HIGH);
+      delay(5000);
+      digitalWrite(greenPin_S, LOW);
+      digitalWrite(yellowPin_S, HIGH);
+      delay(1000);
+      if (!cold) {
+        digitalWrite(yellowPin_S, LOW);
+      }
+      digitalWrite(redPin_S, HIGH);
+      delay(1000);
+    } else if (distance_E == mini) {
+      //if west road has most traffic(detected by sensor in east)
+      Serial.println("East Green");
+      digitalWrite(redPin_E, LOW);
+      digitalWrite(greenPin_E, HIGH);
+      delay(5000);
+      digitalWrite(greenPin_E, LOW);
+      digitalWrite(yellowPin_E, HIGH);
+      delay(1000);
+      if (!cold) {
+        digitalWrite(yellowPin_E, LOW);
+      }
+      digitalWrite(redPin_E, HIGH);
+      delay(1000);
+    } else if (distance_W == mini) {
+      //if east road has most traffic(detected by sensor in west)
+      Serial.println("West Green");
+      digitalWrite(redPin_W, LOW);
+      digitalWrite(greenPin_W, HIGH);
+      delay(5000);
+      digitalWrite(greenPin_W, LOW);
+      digitalWrite(yellowPin_W, HIGH);
+      delay(1000);
+      if (!cold) {
+        digitalWrite(yellowPin_W, LOW);
+      }
+      digitalWrite(redPin_W, HIGH);
+      delay(1000);
+    }
+
+  }
+
+  // Send data to ThingSpeak if the interval has passed
+  unsigned long currentTime = millis();
+  if (currentTime - lastSendTime >= sendInterval) {
+    sendToThingSpeak(humidity, temperature, distance_N, distance_S, distance_E, distance_W);
+    lastSendTime = currentTime;  // Update the last send time
+  }
+
+  delay(1000); //doing same again every 1 sec
+}
+
+int measureDistance(int direction) {
+  //to use same function for all direction  , we put argument in measureDistance()
+  //0 : north , 1 : south , 2 : east , 3 : west
+  int trigPin, echoPin ;
+  if (direction == 0) {
+    trigPin = trigPin_N;
+    echoPin = echoPin_N;
+  }
+  else if (direction == 1) {
+    trigPin = trigPin_S;
+    echoPin = echoPin_S;
+  }
+  else if (direction == 2) {
+    trigPin = trigPin_E;
+    echoPin = echoPin_E;
+  }
+  else if (direction == 3) {
+    trigPin = trigPin_W;
+    echoPin = echoPin_W;
+  }
+  // Trigger ultrasonic sensor to send a pulse
+  digitalWrite(trigPin, LOW);
+  delayMicroseconds(2);
+  digitalWrite(trigPin, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(trigPin, LOW);
+
+  // Measure the time taken for the pulse to return
+  int duration = pulseIn(echoPin, HIGH);
+
+  // Calculate distance based on the speed of sound
+  return duration * 0.034 / 2;  // Distance in centimeters
+}
+
+
+void sendToThingSpeak(int humidity, int temperature, int distance_N, int distance_S, int distance_E, int distance_W) {
+  ThingSpeak.setField(1, humidity);
+  ThingSpeak.setField(2, temperature);
+  ThingSpeak.setField(3, distance_N);
+  ThingSpeak.setField(4, distance_S);
+  ThingSpeak.setField(5, distance_E);
+  ThingSpeak.setField(6, distance_W);
+
+  int status = ThingSpeak.writeFields(myChannelNumber, myApiKey);
+
+  if (status == 200) {
+    Serial.println("Data sent to ThingSpeak successfully.");
+  } else {
+    Serial.println("Error sending data to ThingSpeak. Status code: " + String(status));
+  }
+}
+
